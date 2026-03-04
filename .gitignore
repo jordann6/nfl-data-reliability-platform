@@ -1,3 +1,9 @@
+# macOS
+.DS_Store
+
+# VS Code
+.vscode/
+
 # Python
 __pycache__/
 *.py[cod]
@@ -6,26 +12,39 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+.pytest_cache/
+.mypy_cache/
 .venv/
 venv/
-
-# Env files
 .env
 .env.*
+*.log
 
 # Terraform
-.terraform/
-.terraform.lock.hcl
-*.tfstate
-*.tfstate.*
+**/.terraform/
+**/.terraform.lock.hcl
+**/*.tfstate
+**/*.tfstate.*
 crash.log
 override.tf
 override.tf.json
 *_override.tf
 *_override.tf.json
 
-# OS
-.DS_Store
+# Terraform backend local config
+infra/environments/*/backend.hcl
+infra/environments/*/backend.local.hcl
+infra/environments/*/*.auto.tfvars
+infra/environments/*/*.auto.tfvars.json
 
-# IDE
-.vscode/
+# Local secrets, credentials, and keys
+*.pem
+*.pfx
+*.p12
+*.key
+*.crt
+*secrets*
+*secret*
+*credentials*
+.azure/
+aws-credentials*

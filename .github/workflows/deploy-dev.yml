@@ -1,0 +1,64 @@
+name: deploy dev
+
+on:
+  push:
+    branches: [ main ]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Set up Docker buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: ACR login
+        run: az acr login --name ${{ secrets.ACR_NAME }}
+
+      - name: Build and push ingestor image amd64
+        run: |
+          ACR_SERVER="$(az acr show --name ${{ secrets.ACR_NAME }} --query loginServer -o tsv)"
+          docker buildx build \
+            --platform linux/amd64 \
+            -t "$ACR_SERVER/nfl-ingestor:dev" \
+            --push \
+            ./services/ingestor
+
+      - name: Terraform init
+        working-directory: infra/environments/dev
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=${{ secrets.TF_BACKEND_RESOURCE_GROUP }}" \
+            -backend-config="storage_account_name=${{ secrets.TF_BACKEND_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=${{ secrets.TF_BACKEND_CONTAINER }}" \
+            -backend-config="key=${{ secrets.TF_BACKEND_KEY }}"
+
+      - name: Terraform fmt and validate
+        working-directory: infra/environments/dev
+        run: |
+          terraform fmt -recursive
+          terraform validate
+
+      - name: Terraform apply
+        working-directory: infra/environments/dev
+        run: terraform apply -auto-approve
+
+      - name: Post deploy checks
+        working-directory: infra/environments/dev
+        run: |
+          APP_URL="$(terraform output -raw ingestor_app_url)"
+          curl -fsS "$APP_URL/healthz"
+          curl -fsS "$APP_URL/metrics" | grep -E "ingestion_runs_total|schema_validity_total|data_freshness_seconds"
