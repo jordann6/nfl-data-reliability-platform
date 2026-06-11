@@ -1,56 +1,66 @@
 # NFL Data Reliability Platform (Azure)
 
-Treats a public NFL sports API as a production data source and wraps ingestion with SRE style observability, reliability signals, and Infrastructure as Code.
+Treats a public NFL sports API as a production data source and wraps ingestion with SRE-style observability, reliability signals, and Infrastructure as Code: SLIs, SLOs, burn rate analysis, and runbooks, all provisioned with modular Terraform.
 
-## What this platform does
-- Ingests data from a public NFL endpoint on a schedule using a Python service
-- Stores raw and processed payloads in Azure Blob Storage with a quarantine path for schema issues
-- Exposes custom Prometheus metrics for SLIs and SLO oriented monitoring
-- Runs on Azure Container Apps, built and deployed with Terraform modules
-- Uses a Prometheus scraper container app for PromQL queries and basic burn rate analysis
-- Includes runbooks and SLO documentation for reliability operations
+## Architecture
 
-## Core components
-- Azure Container Apps
-  - Ingestor service container app exposing /healthz and /metrics
-  - Prometheus scraper container app scraping the ingestor metrics endpoint
-- Azure Storage
-  - Storage account with blob containers: raw, processed, quarantine
-  - RBAC storage permissions granted to the ingestor managed identity
-- Azure Container Registry
-  - Stores the ingestor image tagged for deployment
-- Azure Key Vault
-  - Holds secrets for future integrations
-- Azure Managed Grafana
-  - Managed dashboard surface for Prometheus metrics
+```mermaid
+flowchart LR
+    NFL[Public NFL API] --> ING[Ingestor<br/>Python on Container Apps<br/>/healthz /metrics]
+    ING -->|schema valid| RAW[Blob: raw]
+    ING -->|schema valid| PROC[Blob: processed]
+    ING -->|schema invalid| QUAR[Blob: quarantine]
+    PROM[Prometheus scraper<br/>Container App] -->|scrapes /metrics| ING
+    PROM --> GRAF[Azure Managed Grafana<br/>SLO dashboards + burn rates]
+    ACR[Azure Container Registry] -->|image| ING
+    MI[Managed Identity] -.->|RBAC, no keys| RAW
+    KV[Key Vault] -.-> ING
+```
 
-## Observability and reliability signals
-Custom Prometheus metrics exposed by the ingestor include:
-- ingestion_runs_total{result="success|failure"}
-- schema_validity_total{valid="true|false"}
-- data_freshness_seconds
-- ingestion_last_success_timestamp_seconds
+The ingestor pulls NFL payloads on a schedule, validates them against a schema, and routes blobs to raw, processed, or quarantine paths. A Prometheus scraper container app collects custom metrics from the ingestor, surfaced in Azure Managed Grafana with PromQL burn rate analysis against defined SLO targets.
 
-PromQL examples and burn rate guidance are documented under ops/slo, and a runbook is provided under ops/runbooks.
+## Reliability Signals
 
-## Repository structure
-- infra/bootstrap
-  - Creates the remote backend resources for Terraform state
-- infra/environments/dev
-  - Dev environment root, wires modules together
-- infra/modules
-  - Reusable Terraform modules for platform resources
-- services/ingestor
-  - Python ingestion service and Dockerfile
-- ops/slo
-  - SLO and burn rate PromQL references
-- ops/runbooks
-  - Operational runbooks for incident response
+| SLI metric | What it tracks |
+|---|---|
+| `ingestion_runs_total{result}` | Ingestion success rate |
+| `schema_validity_total{valid}` | Share of payloads passing schema validation |
+| `data_freshness_seconds` | Age of the most recent successful ingest |
+| `ingestion_last_success_timestamp_seconds` | Last-success timestamp for alerting |
 
-## Deploy and destroy
-This project is designed to be deployed for testing and then destroyed.
-- Deploy: terraform apply from infra/environments/dev
-- Destroy: terraform destroy from infra/environments/dev, then terraform destroy from infra/bootstrap if you want to remove the state backend too
+PromQL references for SLOs and burn rates live in [`ops/slo`](ops/slo), and the incident runbook (ingestion failure, schema drift, freshness degradation) in [`ops/runbooks`](ops/runbooks).
+
+## Core Components
+
+- **Azure Container Apps**: ingestor service and Prometheus scraper
+- **Azure Blob Storage**: raw / processed / quarantine containers, RBAC-scoped to the ingestor's managed identity (no access keys)
+- **Azure Container Registry**: deployment images
+- **Azure Key Vault**: secrets for future integrations
+- **Azure Managed Grafana**: dashboards over Prometheus metrics
+
+## Repository Structure
+
+```
+infra/bootstrap/            Remote state backend resources
+infra/environments/dev/     Dev environment root wiring all modules
+infra/modules/              acr, blob_storage, container_app_ingestor,
+                            container_app_prometheus, container_apps_env,
+                            identity_uami, key_vault, managed_grafana, ...
+services/ingestor/          Python ingestion service, schema, Dockerfile
+ops/slo/                    SLO + burn rate PromQL references
+ops/runbooks/               Incident response runbooks
+```
+
+## Deploy and Destroy
+
+```bash
+cd infra/environments/dev
+terraform init && terraform apply   # deploy
+terraform destroy                   # teardown (then infra/bootstrap to remove state backend)
+```
+
+Designed to be deployed for testing and destroyed afterward to keep Azure spend near zero.
 
 ## Notes
-The ingestion service image must be built and pushed as linux amd64 for Azure Container Apps compatibility on Apple Silicon development machines.
+
+The ingestor image must be built and pushed as `linux/amd64` for Azure Container Apps compatibility when developing on Apple Silicon.
