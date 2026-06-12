@@ -1,5 +1,7 @@
 # NFL Data Reliability Platform (Azure)
 
+[![Validate](https://github.com/jordann6/nfl-data-reliability-platform/actions/workflows/validate.yml/badge.svg)](https://github.com/jordann6/nfl-data-reliability-platform/actions/workflows/validate.yml)
+
 Treats a public NFL sports API as a production data source and wraps ingestion with SRE-style observability, reliability signals, and Infrastructure as Code: SLIs, SLOs, burn rate analysis, and runbooks, all provisioned with modular Terraform.
 
 ## Architecture
